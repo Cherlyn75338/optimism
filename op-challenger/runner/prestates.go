@@ -14,7 +14,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts/metrics"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/prestates"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/vm"
-	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
+	faultTypes "github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -23,7 +23,7 @@ import (
 type OnChainPrestateFetcher struct {
 	m                  metrics.ContractMetricer
 	gameFactoryAddress common.Address
-	gameType           types.GameType
+	gameType           faultTypes.GameType
 	caller             *batching.MultiCaller
 }
 
@@ -87,7 +87,12 @@ func (f *NamedPrestateFetcher) getPrestate(ctx context.Context, logger log.Logge
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", fmt.Errorf("error creating prestate dir: %w", err)
 	}
-	prestateUrl := prestateBaseUrl.JoinPath(f.filename)
+	// Sanitize filename to prevent path traversal or absolute path writes
+	cleanName := filepath.Clean(f.filename)
+	if filepath.IsAbs(cleanName) || cleanName != filepath.Base(cleanName) || cleanName == "." || cleanName == ".." || cleanName == "" {
+		return "", fmt.Errorf("invalid prestate filename: %q", f.filename)
+	}
+	prestateUrl := prestateBaseUrl.JoinPath(cleanName)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -104,7 +109,7 @@ func (f *NamedPrestateFetcher) getPrestate(ctx context.Context, logger log.Logge
 		return "", fmt.Errorf("%w from url %v: status %v", prestates.ErrPrestateUnavailable, prestateUrl, resp.StatusCode)
 	}
 
-	targetFile := filepath.Join(targetDir, f.filename)
+	targetFile := filepath.Join(targetDir, cleanName)
 	out, err := os.Create(targetFile)
 	if err != nil {
 		return "", fmt.Errorf("failed to create prestate file %v: %w", targetFile, err)
@@ -115,19 +120,24 @@ func (f *NamedPrestateFetcher) getPrestate(ctx context.Context, logger log.Logge
 	}
 	proof, _, _, err := stateConverter.ConvertStateToProof(ctx, targetFile)
 	if err != nil {
-		return "", fmt.Errorf("invalid prestate file %v: %w", f.filename, err)
+		return "", fmt.Errorf("invalid prestate file %v: %w", cleanName, err)
 	}
 
 	metadata, err := f.getPrestateMetadata(ctx, prestateBaseUrl)
 	if err != nil {
-		logger.Warn("Metadata unavailable for prestate", "prestate", f.filename, "err", err)
+		logger.Warn("Metadata unavailable for prestate", "prestate", cleanName, "err", err)
 	}
-	logger.Info("Downloaded named prestate", "filename", f.filename, "prestate", proof.ClaimValue, "metadata", metadata)
+	logger.Info("Downloaded named prestate", "filename", cleanName, "prestate", proof.ClaimValue, "metadata", metadata)
 	return targetFile, nil
 }
 
 func (f *NamedPrestateFetcher) getPrestateMetadata(ctx context.Context, prestateBaseUrl *url.URL) (string, error) {
-	gitInfoUrl := prestateBaseUrl.JoinPath(f.filename + ".txt")
+	// Sanitize filename for metadata fetch too
+	cleanName := filepath.Clean(f.filename)
+	if filepath.IsAbs(cleanName) || cleanName != filepath.Base(cleanName) || cleanName == "." || cleanName == ".." || cleanName == "" {
+		return "", fmt.Errorf("invalid prestate filename: %q", f.filename)
+	}
+	gitInfoUrl := prestateBaseUrl.JoinPath(cleanName + ".txt")
 	req, err := http.NewRequestWithContext(ctx, "GET", gitInfoUrl.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create prestate metadata request: %w", err)

@@ -82,7 +82,7 @@ func newClientsFromCLI(ctx *cli.Context) (*batching.MultiCaller, txmgr.TxManager
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to dial L1: %w", err)
 	}
-	defer l1Client.Close()
+	// Note: do not close l1Client here; the returned MultiCaller uses it for subsequent operations
 
 	caller := batching.NewMultiCaller(l1Client.Client(), batching.DefaultBatchSize)
 	txMgrConfig := txmgr.ReadCLIConfig(ctx)
