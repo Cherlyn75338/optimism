@@ -157,6 +157,9 @@ func (s *Service) initPollClient(ctx context.Context, cfg *config.Config) error 
 }
 
 func (s *Service) initPProf(cfg *oppprof.CLIConfig) error {
+	if cfg.ListenEnabled && cfg.ListenAddr == "0.0.0.0" {
+		s.logger.Warn("pprof bound to 0.0.0.0; prefer 127.0.0.1 or a reverse proxy")
+	}
 	s.pprofService = oppprof.New(
 		cfg.ListenEnabled,
 		cfg.ListenAddr,
@@ -176,6 +179,9 @@ func (s *Service) initPProf(cfg *oppprof.CLIConfig) error {
 func (s *Service) initMetricsServer(cfg *opmetrics.CLIConfig) error {
 	if !cfg.Enabled {
 		return nil
+	}
+	if cfg.ListenAddr == "0.0.0.0" {
+		s.logger.Warn("metrics bound to 0.0.0.0; prefer 127.0.0.1 or a reverse proxy")
 	}
 	s.logger.Debug("starting metrics server", "addr", cfg.ListenAddr, "port", cfg.ListenPort)
 	m, ok := s.metrics.(opmetrics.RegistryMetricer)

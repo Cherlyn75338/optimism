@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/contracts"
@@ -15,6 +16,7 @@ import (
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/prestates"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/trace/vm"
 	"github.com/ethereum-optimism/optimism/op-challenger/game/fault/types"
+	"github.com/ethereum-optimism/optimism/op-service/ioutil"
 	"github.com/ethereum-optimism/optimism/op-service/sources/batching"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/log"
@@ -87,7 +89,12 @@ func (f *NamedPrestateFetcher) getPrestate(ctx context.Context, logger log.Logge
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", fmt.Errorf("error creating prestate dir: %w", err)
 	}
-	prestateUrl := prestateBaseUrl.JoinPath(f.filename)
+	// Sanitize filename: must be a simple base name without any path separators or traversal
+	name := filepath.Base(f.filename)
+	if name != f.filename || name == "." || name == "" || strings.Contains(name, "..") {
+		return "", fmt.Errorf("invalid prestate filename: %q", f.filename)
+	}
+	prestateUrl := prestateBaseUrl.JoinPath(name)
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
 
@@ -104,30 +111,44 @@ func (f *NamedPrestateFetcher) getPrestate(ctx context.Context, logger log.Logge
 		return "", fmt.Errorf("%w from url %v: status %v", prestates.ErrPrestateUnavailable, prestateUrl, resp.StatusCode)
 	}
 
-	targetFile := filepath.Join(targetDir, f.filename)
-	out, err := os.Create(targetFile)
-	if err != nil {
-		return "", fmt.Errorf("failed to create prestate file %v: %w", targetFile, err)
+	targetFile := filepath.Join(targetDir, name)
+	// Ensure the final path is contained within targetDir
+	cleaned := filepath.Clean(targetFile)
+	if !(strings.HasPrefix(cleaned, targetDir+string(os.PathSeparator)) || cleaned == targetDir) {
+		return "", fmt.Errorf("invalid resolved prestate path: %v", cleaned)
 	}
-	defer out.Close()
+	// Write atomically to avoid partially written files
+	out, err := ioutil.NewAtomicWriter(targetFile, 0o644)
+	if err != nil {
+		return "", fmt.Errorf("failed to open atomic writer for %v: %w", targetFile, err)
+	}
+	defer out.Abort()
 	if _, err := io.Copy(out, resp.Body); err != nil {
 		return "", fmt.Errorf("failed to write prestate to %v: %w", targetFile, err)
 	}
+	if err := out.Close(); err != nil {
+		return "", fmt.Errorf("failed to close prestate file %v: %w", targetFile, err)
+	}
 	proof, _, _, err := stateConverter.ConvertStateToProof(ctx, targetFile)
 	if err != nil {
-		return "", fmt.Errorf("invalid prestate file %v: %w", f.filename, err)
+		return "", fmt.Errorf("invalid prestate file %v: %w", name, err)
 	}
 
 	metadata, err := f.getPrestateMetadata(ctx, prestateBaseUrl)
 	if err != nil {
-		logger.Warn("Metadata unavailable for prestate", "prestate", f.filename, "err", err)
+		logger.Warn("Metadata unavailable for prestate", "prestate", name, "err", err)
 	}
-	logger.Info("Downloaded named prestate", "filename", f.filename, "prestate", proof.ClaimValue, "metadata", metadata)
+	logger.Info("Downloaded named prestate", "filename", name, "prestate", proof.ClaimValue, "metadata", metadata)
 	return targetFile, nil
 }
 
 func (f *NamedPrestateFetcher) getPrestateMetadata(ctx context.Context, prestateBaseUrl *url.URL) (string, error) {
-	gitInfoUrl := prestateBaseUrl.JoinPath(f.filename + ".txt")
+	// Use sanitized basename for metadata lookup too
+	name := filepath.Base(f.filename)
+	if name != f.filename || name == "." || name == "" || strings.Contains(name, "..") {
+		return "", fmt.Errorf("invalid prestate metadata filename: %q", f.filename)
+	}
+	gitInfoUrl := prestateBaseUrl.JoinPath(name + ".txt")
 	req, err := http.NewRequestWithContext(ctx, "GET", gitInfoUrl.String(), nil)
 	if err != nil {
 		return "", fmt.Errorf("failed to create prestate metadata request: %w", err)

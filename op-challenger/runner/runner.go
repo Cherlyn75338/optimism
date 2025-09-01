@@ -205,6 +205,9 @@ func (r *Runner) runOnce(ctx context.Context, logger log.Logger, name string, tr
 }
 
 func (r *Runner) prepDatadir(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("invalid empty run name after sanitization")
+	}
 	dir := filepath.Join(r.cfg.Datadir, name)
 	if err := os.RemoveAll(dir); err != nil {
 		return "", fmt.Errorf("failed to remove old dir: %w", err)
