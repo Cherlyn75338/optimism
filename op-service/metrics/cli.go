@@ -13,7 +13,7 @@ const (
 	EnabledFlagName    = "metrics.enabled"
 	ListenAddrFlagName = "metrics.addr"
 	PortFlagName       = "metrics.port"
-	defaultListenAddr  = "0.0.0.0"
+	defaultListenAddr  = "127.0.0.1"
 	defaultListenPort  = 7300
 )
 
@@ -42,7 +42,7 @@ func CLIFlagsWithCategory(envPrefix string, category string) []cli.Flag {
 		&cli.StringFlag{
 			Name:     ListenAddrFlagName,
 			Usage:    "Metrics listening address",
-			Value:    defaultListenAddr, // TODO: Switch to 127.0.0.1
+			Value:    defaultListenAddr, // Default to localhost for safer defaults
 			EnvVars:  opservice.PrefixEnvVar(envPrefix, "METRICS_ADDR"),
 			Category: category,
 		},
