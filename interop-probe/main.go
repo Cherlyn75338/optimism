@@ -159,19 +159,9 @@ func main() {
     checkOnly := flag.Bool("check", false, "only check interop predeploys exist and exit")
     flag.Parse()
 
-    if *privHex == "" || *targetHex == "" {
+    if !*checkOnly && (*privHex == "" || *targetHex == "") {
         log.Fatalf("missing --priv or --target")
     }
-
-    // Parse keys and addresses
-    pk, err := crypto.HexToECDSA(strings.TrimPrefix(*privHex, "0x"))
-    if err != nil {
-        log.Fatalf("priv key: %v", err)
-    }
-    from := crypto.PubkeyToAddress(pk.PublicKey)
-    target := common.HexToAddress(*targetHex)
-    forgedSender := common.HexToAddress(*senderHex)
-    callData := common.FromHex(*dataHex)
 
     // Connect to RPC
     ctx := context.Background()
@@ -209,6 +199,16 @@ func main() {
     if len(inboxCode) == 0 || len(messengerCode) == 0 {
         log.Fatalf("Interop not active on this chain (predeploys missing code). Refusing to send.")
     }
+
+    // Parse keys and addresses (only after checkOnly gate)
+    pk, err := crypto.HexToECDSA(strings.TrimPrefix(*privHex, "0x"))
+    if err != nil {
+        log.Fatalf("priv key: %v", err)
+    }
+    from := crypto.PubkeyToAddress(pk.PublicKey)
+    target := common.HexToAddress(*targetHex)
+    forgedSender := common.HexToAddress(*senderHex)
+    callData := common.FromHex(*dataHex)
     // latest header
     header, err := cli.HeaderByNumber(ctx, nil)
     if err != nil {
