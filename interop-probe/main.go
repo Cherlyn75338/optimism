@@ -156,6 +156,7 @@ func main() {
     maxFeeGwei := flag.Uint64("maxFee", 10, "maxFeePerGas in gwei")
     maxTipGwei := flag.Uint64("maxTip", 1, "maxPriorityFeePerGas in gwei")
     dryRun := flag.Bool("dry", false, "build and print tx but do not send")
+    checkOnly := flag.Bool("check", false, "only check interop predeploys exist and exit")
     flag.Parse()
 
     if *privHex == "" || *targetHex == "" {
@@ -184,6 +185,29 @@ func main() {
     chainID, err := cli.ChainID(ctx)
     if err != nil {
         log.Fatalf("chainId: %v", err)
+    }
+
+    // Sanity: ensure interop predeploys exist
+    inboxCode, err := cli.CodeAt(ctx, crossL2InboxAddr, nil)
+    if err != nil {
+        log.Fatalf("getCode inbox: %v", err)
+    }
+    messengerCode, err := cli.CodeAt(ctx, l2ToL2MessengerPredeployAddr, nil)
+    if err != nil {
+        log.Fatalf("getCode messenger: %v", err)
+    }
+    fmt.Printf("CROSS_L2_INBOX code len: %d\n", len(inboxCode))
+    fmt.Printf("L2ToL2CrossDomainMessenger code len: %d\n", len(messengerCode))
+    if *checkOnly {
+        if len(inboxCode) == 0 || len(messengerCode) == 0 {
+            fmt.Println("Interop not active: one or both predeploys are missing code. Aborting.")
+            os.Exit(2)
+        }
+        fmt.Println("Interop predeploys present.")
+        os.Exit(0)
+    }
+    if len(inboxCode) == 0 || len(messengerCode) == 0 {
+        log.Fatalf("Interop not active on this chain (predeploys missing code). Refusing to send.")
     }
     // latest header
     header, err := cli.HeaderByNumber(ctx, nil)
