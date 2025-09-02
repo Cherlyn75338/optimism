@@ -2,7 +2,6 @@ package main
 
 import (
     "context"
-    "crypto/ecdsa"
     "encoding/hex"
     "flag"
     "fmt"
